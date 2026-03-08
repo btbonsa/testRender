@@ -1,0 +1,135 @@
+const db = require("../.config");
+
+const nodemailer = require("nodemailer");
+const crypto = require("crypto");
+const {google} = require("googleapis");
+
+
+const oAuth2Client = new google.auth.OAuth2(
+  process.env.CLIENT_ID,
+  process.env.CLIENT_SECRET,
+  process.env.REDIRECT_URI
+);
+
+
+
+oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
+const accessToken = oAuth2Client.getAccessToken();
+
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    type: "OAuth2",
+    user: process.env.EMAIL_USER,
+    clientId: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    refreshToken: process.env.REFRESH_TOKEN,
+    accessToken: accessToken,
+  },
+});
+
+const generateOTP = () => crypto.randomInt(100000, 999999).toString();
+
+
+
+
+
+exports.login = (req, res) => {
+  const { Email, Password } = req.body;
+
+  const Sql = "select * from users where Email = ? and Password = ?";
+
+  db.query(Sql, [Email, Password], (err, results) => {
+    if (err) {
+      return res.status(500).send({ msg: "database connection error" });
+    }
+    if (results.length > 0) {
+      return res.status(200).send({ msg: "Login successful" });
+    }
+    return res.status(400).send({ msg: "Invalid credentials" });
+  });
+};
+const { parsePhoneNumberFromString } = require("libphonenumber-js");
+
+
+
+
+
+
+
+exports.signup = (req, res) => {
+  const { FullName, Email, Password, ConfirmPassword, PhoneNumber } = req.body;
+  
+
+  if (!FullName || !Email || !Password || !ConfirmPassword || !PhoneNumber) {
+    return res.status(400).send({ msg: "Please fill all fields" });
+  }
+
+  if (Password !== ConfirmPassword) {
+    return res.status(400).send({ msg: "Passwords do not match" });
+  }
+
+  const parsedPhoneNumber = parsePhoneNumberFromString(PhoneNumber, "ET");
+  if (!parsedPhoneNumber || !parsedPhoneNumber.isValid()) {
+    return res.status(400).send({ msg: "Invalid phone number" });
+  }
+  const CheckQuery = "select * from users where Email = ?";
+  db.query(CheckQuery, [Email], (err, results) => {
+    if (err) {
+      return res.status(500).send({ msg: "database connection error", err });
+    }
+
+    if (results.length > 0) {
+      return res.status(400).send({ msg: " Email already exists" });
+    }
+
+    const CheckQuery = "select * from users where PhoneNumber = ?";
+    db.query(CheckQuery, [PhoneNumber], (err, results) => {
+      if (err) {
+        return res.status(500).send({ msg: "database connection error" });
+      }
+
+      if (results.length > 0) {
+        return res.status(400).send({ msg: "PhoneNumber already exists" });
+      }
+   const otp = generateOTP();
+   const otpExpry = new Date(Date.now() + 5 * 60 * 1000);
+
+      const sql = "INSERT INTO users set ?";
+      const values = {
+        FullName: FullName,
+        Email: Email,
+        Password: Password,
+        ConfirmPassword: ConfirmPassword,
+        PhoneNumber: PhoneNumber,
+        otp: otp,
+        otpExpry: otpExpry,
+      };
+      db.query(sql, values, (err, results) => {
+        if (err) {
+          return res.status(500).send({ msg: "Internal server error" , err});
+        }
+        if (results) {
+          transporter.sendMail({
+            from: "aberashtolesab@gmail.com",
+            to: Email,
+            subject: "OTP",
+            text: `your OTP is ${otp}`,
+          });
+          console.log("User created successfully please verfiy your email");
+          return res.status(201).send({ msg: " user created successfully please verfiy your email" });
+        }
+      });
+    });
+  });
+};
+
+
+
+
+
+
+exports.verifyOTP = (req, res) => {
+  const { Email, otp } = req.body;
+};
